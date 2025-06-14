@@ -35,6 +35,4 @@ yarn-error.log*
 *.war
 *.ear
 
-# # Optional Maven wrapper files (if you want to ignore them)
-# /mvnw
-# /mvnw.cmd
+
