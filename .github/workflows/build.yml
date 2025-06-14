@@ -12,13 +12,6 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Configure AWS Credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ secrets.AWS_REGION }}
-
     - name: Set up JDK
       uses: actions/setup-java@v4
       with:
@@ -26,42 +19,57 @@ jobs:
         java-version: '8'
 
     - name: Build and test with Maven
-      run: mvn clean package    
+      run: mvn clean package
+      
+  docker_build_push:
+      runs-on: ubuntu-24.04
+      needs: build
+      if: success()
 
-    - name: Authenticate with AWS ECR
-      run: |
-        aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin ${{ secrets.IMAGE_REPO }}
+      steps:
+          - name: Checkout code
+            uses: actions/checkout@v4
 
-    - name: Get Git commit hash
-      id: git_hash
-      run: |
-        echo "GIT_HASH=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_ENV && echo "GIT_HASH=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_OUTPUT
+          - name: Configure AWS Credentials
+            uses: aws-actions/configure-aws-credentials@v4
+            with:
+              aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+              aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+              aws-region: ${{ secrets.AWS_REGION }}
+      
 
-    - name: Save Version and Git Hash
-      run: |
-        echo "${{ env.GIT_HASH }}" > git_hash.txt
+          - name: Authenticate with AWS ECR
+            run: |
+              aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin ${{ secrets.IMAGE_REPO }}
 
-    - name: Upload Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: build-metadata
-        path: |
-          git_hash.txt
-    
-    - name: Build and Tag Docker Image
-      run: |
-        docker build -t ${{ secrets.IMAGE_REPO }}:${{ env.GIT_HASH }} -t ${{ secrets.IMAGE_REPO }}:latest .
-  
-    - name: Push Docker Image to AWS ECR
-      run: |
-        docker push ${{ secrets.IMAGE_REPO }}:${{ env.GIT_HASH }}
-        docker push ${{ secrets.IMAGE_REPO }}:latest
+          - name: Get Git commit hash
+            id: git_hash
+            run: |
+              echo "GIT_HASH=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_ENV && echo "GIT_HASH=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_OUTPUT
 
+          - name: Save Version and Git Hash
+            run: |
+              echo "${{ env.GIT_HASH }}" > git_hash.txt
 
+          - name: Upload Artifact
+            uses: actions/upload-artifact@v4
+            with:
+              name: build-metadata
+              path: |
+                git_hash.txt
+          
+          - name: Build and Tag Docker Image
+            run: |
+              docker build -t ${{ secrets.IMAGE_REPO }}:${{ env.GIT_HASH }} -t ${{ secrets.IMAGE_REPO }}:latest .
+        
+          - name: Push Docker Image to AWS ECR
+            run: |
+              docker push ${{ secrets.IMAGE_REPO }}:${{ env.GIT_HASH }}
+              docker push ${{ secrets.IMAGE_REPO }}:latest
 
   update-k8s-manifest:
       runs-on: ubuntu-24.04
-      needs: build
+      needs: [build,docker_build_push]
       if: success()
 
       steps:
