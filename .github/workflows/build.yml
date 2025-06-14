@@ -2,7 +2,7 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [main]
+    branches: [dev]
 
 jobs:
   build:
@@ -20,3 +20,50 @@ jobs:
 
     - name: Build and test with Maven
       run: mvn clean package
+
+    - name: Authenticate with AWS ECR
+      run: |
+        aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin ${{ secrets.IMAGE_REPO }}
+
+    - name: Get Git commit hash
+      id: git_hash
+      run: |
+        echo "GIT_HASH=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_ENV && echo "GIT_HASH=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_OUTPUT
+
+    - name: Save Version and Git Hash
+      run: |
+        echo "${{ env.GIT_HASH }}" > git_hash.txt
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-metadata
+        path: |
+          git_hash.txt
+    
+    - name: Build and Tag Docker Image
+      run: |
+        docker build -t ${{ secrets.IMAGE_REPO_V1 }}:${{ env.VERSION }}-${{ env.GIT_HASH }} -t ${{ secrets.IMAGE_REPO }}:latest .
+  
+    - name: Push Docker Image to AWS ECR
+      run: |
+        docker push ${{ secrets.IMAGE_REPO }}:${{ env.VERSION }}-${{ env.GIT_HASH }}
+        docker push ${{ secrets.IMAGE_REPO }}:latest
+
+
+
+  # push:
+  #   runs-on: ubuntu-24.04
+
+  #   steps:
+  #   - name: Checkout code
+  #     uses: actions/checkout@v4
+
+  #   - name: Set up JDK
+  #     uses: actions/setup-java@v4
+  #     with:
+  #       distribution: 'temurin'
+  #       java-version: '8'
+
+  #   - name: Build and test with Maven
+  #     run: mvn clean package
