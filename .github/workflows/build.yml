@@ -60,7 +60,7 @@ jobs:
 
 
   update-k8s-manifest:
-      runs-on: [self-hosted, bookmyop]
+      runs-on: ubuntu-24.04
       needs: build
       if: success()
 
