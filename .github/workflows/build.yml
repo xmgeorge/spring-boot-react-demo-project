@@ -26,9 +26,7 @@ jobs:
         java-version: '8'
 
     - name: Build and test with Maven
-      run: mvn clean package
-
-    
+      run: mvn clean package    
 
     - name: Authenticate with AWS ECR
       run: |
@@ -61,18 +59,46 @@ jobs:
 
 
 
-  # push:
-  #   runs-on: ubuntu-24.04
+  update-k8s-manifest:
+      runs-on: [self-hosted, bookmyop]
+      needs: build
+      if: success()
 
-  #   steps:
-  #   - name: Checkout code
-  #     uses: actions/checkout@v4
+      steps:
+          - name: Checkout source code
+            uses: actions/checkout@v4
 
-  #   - name: Set up JDK
-  #     uses: actions/setup-java@v4
-  #     with:
-  #       distribution: 'temurin'
-  #       java-version: '8'
+          - name: Download Artifact
+            uses: actions/download-artifact@v4
+            with:
+              name: build-metadata
 
-  #   - name: Build and test with Maven
-  #     run: mvn clean package
+          - name: Load Variables
+            run: |
+              GIT_HASH=$(cat git_hash.txt)
+              echo "GIT_HASH=$GIT_HASH" >> $GITHUB_ENV
+
+          - name: Set up Git configuration
+            run: |
+              git config --global user.name "github-actions[bot]"
+              git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          - name: Checkout target repository
+            uses: actions/checkout@v4
+            with:
+              ref: main
+              repository: ${{ secrets.K8_MANIFEST_REPO }}              # xmgeorge/spring-boot-react-k8s-manifest
+              token: ${{ secrets.MAINFEST_GITHUB_TOKEN }}
+              path: k8s-manifests
+
+          - name: Update Kubernetes manifest with new image tag
+            run: |
+              cd k8s-manifests
+              sed -i "s|newTag: .*|newTag: ${{ env.GIT_HASH }}|g" overlays/dev/kustomization.yaml
+              if git diff --quiet; then
+                echo "No changes to commit."
+              else
+                git add -A .
+                git commit -m "Update image tag to ${{ env.VERSION }}-${{ env.GIT_HASH }}"
+                git push origin main
+              fi
