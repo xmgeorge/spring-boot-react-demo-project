@@ -65,13 +65,18 @@ jobs:
       if: success()
 
       steps:
-          - name: Checkout source code
-            uses: actions/checkout@v4
-
           - name: Download Artifact
             uses: actions/download-artifact@v4
             with:
               name: build-metadata
+
+          - name: Checkout target repository
+            uses: actions/checkout@v4
+            with:
+              ref: main
+              repository: ${{ secrets.K8_MANIFEST_REPO }}              # xmgeorge/spring-boot-react-k8s-manifest
+              token: ${{ secrets.MAINFEST_GITHUB_TOKEN }}
+              path: k8s-manifests
 
           - name: Load Variables
             run: |
@@ -82,14 +87,6 @@ jobs:
             run: |
               git config --global user.name "github-actions[bot]"
               git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
-          - name: Checkout target repository
-            uses: actions/checkout@v4
-            with:
-              ref: main
-              repository: ${{ secrets.K8_MANIFEST_REPO }}              # xmgeorge/spring-boot-react-k8s-manifest
-              token: ${{ secrets.MAINFEST_GITHUB_TOKEN }}
-              path: k8s-manifests
 
           - name: Update Kubernetes manifest with new image tag
             run: |
