@@ -21,9 +21,16 @@ jobs:
     - name: Build and test with Maven
       run: mvn clean package
 
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_V1 }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_V1 }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
     - name: Authenticate with AWS ECR
       run: |
-        aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin ${{ secrets.IMAGE_REPO }}
+        aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin ${{ secrets.IMAGE_REPO }}
 
     - name: Get Git commit hash
       id: git_hash
