@@ -2,7 +2,7 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [main]
+    branches: [dev]
 
 jobs:
   build:
@@ -20,3 +20,90 @@ jobs:
 
     - name: Build and test with Maven
       run: mvn clean package
+      
+  docker_build_push:
+      runs-on: ubuntu-24.04
+      needs: build
+      if: success()
+
+      steps:
+          - name: Checkout code
+            uses: actions/checkout@v4
+
+          - name: Configure AWS Credentials
+            uses: aws-actions/configure-aws-credentials@v4
+            with:
+              aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+              aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+              aws-region: ${{ secrets.AWS_REGION }}
+      
+
+          - name: Authenticate with AWS ECR
+            run: |
+              aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin ${{ secrets.IMAGE_REPO }}
+
+          - name: Get Git commit hash
+            id: git_hash
+            run: |
+              echo "GIT_HASH=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_ENV && echo "GIT_HASH=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_OUTPUT
+
+          - name: Save Version and Git Hash
+            run: |
+              echo "${{ env.GIT_HASH }}" > git_hash.txt
+
+          - name: Upload Artifact
+            uses: actions/upload-artifact@v4
+            with:
+              name: build-metadata
+              path: |
+                git_hash.txt
+          
+          - name: Build and Tag Docker Image
+            run: |
+              docker build -t ${{ secrets.IMAGE_REPO }}:${{ env.GIT_HASH }} -t ${{ secrets.IMAGE_REPO }}:latest .
+        
+          - name: Push Docker Image to AWS ECR
+            run: |
+              docker push ${{ secrets.IMAGE_REPO }}:${{ env.GIT_HASH }}
+              docker push ${{ secrets.IMAGE_REPO }}:latest
+
+  update-k8s-manifest:
+      runs-on: ubuntu-24.04
+      needs: [build,docker_build_push]
+      if: success()
+
+      steps:
+          - name: Download Artifact
+            uses: actions/download-artifact@v4
+            with:
+              name: build-metadata
+
+          - name: Checkout target repository
+            uses: actions/checkout@v4
+            with:
+              ref: main
+              repository: ${{ secrets.K8_MANIFEST_REPO }}              # xmgeorge/spring-boot-react-k8s-manifest
+              token: ${{ secrets.MAINFEST_GITHUB_TOKEN }}
+              path: k8s-manifests
+
+          - name: Load Variables
+            run: |
+              GIT_HASH=$(cat git_hash.txt)
+              echo "GIT_HASH=$GIT_HASH" >> $GITHUB_ENV
+
+          - name: Set up Git configuration
+            run: |
+              git config --global user.name "github-actions[bot]"
+              git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          - name: Update Kubernetes manifest with new image tag
+            run: |
+              cd k8s-manifests
+              sed -i "s|newTag: .*|newTag: ${{ env.GIT_HASH }}|g" overlays/dev/kustomization.yaml
+              if git diff --quiet; then
+                echo "No changes to commit."
+              else
+                git add -A .
+                git commit -m "Update image tag to ${{ env.VERSION }}-${{ env.GIT_HASH }}"
+                git push origin main
+              fi
